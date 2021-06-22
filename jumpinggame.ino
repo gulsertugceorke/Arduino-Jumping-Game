@@ -1,555 +1,316 @@
 #include <LiquidCrystal.h>
-#include <Servo.h>
+        #define PIN_BUTTON 2
+        #define PIN_AUTOPLAY 1
+        #define PIN_READWRITE 10
+        #define PIN_CONTRAST 12
 
-/* CARACTERES ESPECIALES */
-byte botonNoPres1[] = {
-  0x00,0x00,0x00,0x07,0x04,0x04,0x04,0x0F
-};
+        #define SPRITE_RUN1 1
+        #define SPRITE_RUN2 2
+        #define SPRITE_JUMP 3
+        #define SPRITE_JUMP_UPPER '.'         // Use the '.' character for the head
+        #define SPRITE_JUMP_LOWER 4
+        #define SPRITE_TERRAIN_EMPTY ' '      // User the ' ' character
+        #define SPRITE_TERRAIN_SOLID 5
+        #define SPRITE_TERRAIN_SOLID_RIGHT 6
+        #define SPRITE_TERRAIN_SOLID_LEFT 7
 
-byte botonNoPres2[] = {
-  0x00,0x00,0x00,0x1C,0x04,0x04,0x04,0x1E
-};
+        #define HERO_HORIZONTAL_POSITION 1    // Horizontal position of hero on screen
 
-byte botonPres1[] = {
-  0x00,0x02,0x12,0x08,0x00,0x07,0x04,0x0F
-};
+        #define TERRAIN_WIDTH 16
+        #define TERRAIN_EMPTY 0
+        #define TERRAIN_LOWER_BLOCK 1
+        #define TERRAIN_UPPER_BLOCK 2
 
-byte botonPres2[] = {
-  0x00,0x08,0x09,0x02,0x00,0x1C,0x04,0x1E
-};
+        #define HERO_POSITION_OFF 0          // Hero is invisible
+        #define HERO_POSITION_RUN_LOWER_1 1  // Hero is running on lower row (pose 1)
+        #define HERO_POSITION_RUN_LOWER_2 2  //                              (pose 2)
 
-/* VARIABLES PARA INDICAR PINES */
-const int LED_AZUL = 2;
-const int LED_AMARILLO = 3;
-const int LED_ROJO = 4;
-const int LED_VERDE = 5;
+        #define HERO_POSITION_JUMP_1 3       // Starting a jump
+        #define HERO_POSITION_JUMP_2 4       // Half-way up
+        #define HERO_POSITION_JUMP_3 5       // Jump is on upper row
+        #define HERO_POSITION_JUMP_4 6       // Jump is on upper row
+        #define HERO_POSITION_JUMP_5 7       // Jump is on upper row
+        #define HERO_POSITION_JUMP_6 8       // Jump is on upper row
+        #define HERO_POSITION_JUMP_7 9       // Half-way down
+        #define HERO_POSITION_JUMP_8 10      // About to land
 
-const int SERVO = 6;
+        #define HERO_POSITION_RUN_UPPER_1 11 // Hero is running on upper row (pose 1)
+        #define HERO_POSITION_RUN_UPPER_2 12 //                              (pose 2)
 
-const int PIN_BUZZER = 7;
+        LiquidCrystal lcd(11, 9, 6, 5, 4, 3);
+static char terrainUpper[TERRAIN_WIDTH + 1];
+static char terrainLower[TERRAIN_WIDTH + 1];
+static bool buttonPushed = false;
+        int led=7;
+        int buzzer=7;
 
-const int RS = 8;
-const int E = 9;
-const int D4 = 10;
-const int D5 = 11;
-const int D6 = 12;
-const int D7 = 13;
+        void initializeGraphics(){
+static byte graphics[] = {
+        // Run position 1
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        B01010,
+        B11111,
+        B01110,
+        B00100,
+        // Run position 2
+        B00000,
+        B01010,
+        B11111,
+        B11111,
+        B01110,
+        B00100,
+        B00000,
+        B00000,
+        // Jump
+        B01010,
+        B11111,
+        B01110,
+        B00100,
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        // Jump lower
+        B00000,
+        B00000,
+        B01010,
+        B11111,
+        B01110,
+        B00100,
+        B00000,
+        B00000,
+        // Ground
+        B01110,
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        B01110,
+        B10101,
+        B11111,
+        B01110,
+        // Ground right
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        B01110,
+        B10101,
+        B11111,
+        B01110,
+        // Ground left
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        B01110,
+        B10101,
+        B11111,
+        B01110,
+        };
+        int i;
+        // Skip using character 0, this allows lcd.print() to be used to
+        // quickly draw multiple characters
+        for (i = 0; i < 7; ++i) {
+        lcd.createChar(i + 1, &graphics[i * 8]);
+        }
+        for (i = 0; i < TERRAIN_WIDTH; ++i) {
+        terrainUpper[i] = SPRITE_TERRAIN_EMPTY;
+        terrainLower[i] = SPRITE_TERRAIN_EMPTY;
+        }
+        }
 
-const int PULSADOR_VERDE = A0;
-const int PULSADOR_ROJO = A1;
-const int PULSADOR_AMARILLO = A2;
-const int PULSADOR_AZUL = A3;
+// Slide the terrain to the left in half-character increments
+//
+        void advanceTerrain(char* terrain, byte newTerrain){
+        for (int i = 0; i < TERRAIN_WIDTH; ++i) {
+        char current = terrain[i];
+        char next = (i == TERRAIN_WIDTH-1) ? newTerrain : terrain[i+1];
+        switch (current){
+        case SPRITE_TERRAIN_EMPTY:
+        terrain[i] = (next == SPRITE_TERRAIN_SOLID) ? SPRITE_TERRAIN_SOLID_RIGHT : SPRITE_TERRAIN_EMPTY;
+        break;
+        case SPRITE_TERRAIN_SOLID:
+        terrain[i] = (next == SPRITE_TERRAIN_EMPTY) ? SPRITE_TERRAIN_SOLID_LEFT : SPRITE_TERRAIN_SOLID;
+        break;
+        case SPRITE_TERRAIN_SOLID_RIGHT:
+        terrain[i] = SPRITE_TERRAIN_SOLID;
+        break;
+        case SPRITE_TERRAIN_SOLID_LEFT:
+        terrain[i] = SPRITE_TERRAIN_EMPTY;
+        break;
+        }
+        }
+        }
 
-const int POTENCIOMETRO = A4;
+        bool drawHero(byte position, char* terrainUpper, char* terrainLower, unsigned int score) {
+        bool collide = false;
+        char upperSave = terrainUpper[HERO_HORIZONTAL_POSITION];
+        char lowerSave = terrainLower[HERO_HORIZONTAL_POSITION];
+        byte upper, lower;
+        switch (position) {
+        case HERO_POSITION_OFF:
+        upper = lower = SPRITE_TERRAIN_EMPTY;
+        break;
+        case HERO_POSITION_RUN_LOWER_1:
+        upper = SPRITE_TERRAIN_EMPTY;
+        lower = SPRITE_RUN1;
+        break;
+        case HERO_POSITION_RUN_LOWER_2:
+        upper = SPRITE_TERRAIN_EMPTY;
+        lower = SPRITE_RUN2;
+        break;
+        case HERO_POSITION_JUMP_1:
+        case HERO_POSITION_JUMP_8:
+        upper = SPRITE_TERRAIN_EMPTY;
+        lower = SPRITE_JUMP;
+        break;
+        case HERO_POSITION_JUMP_2:
+        case HERO_POSITION_JUMP_7:
+        upper = SPRITE_JUMP_UPPER;
+        lower = SPRITE_JUMP_LOWER;
+        break;
+        case HERO_POSITION_JUMP_3:
+        case HERO_POSITION_JUMP_4:
+        case HERO_POSITION_JUMP_5:
+        case HERO_POSITION_JUMP_6:
+        upper = SPRITE_JUMP;
+        lower = SPRITE_TERRAIN_EMPTY;
+        break;
+        case HERO_POSITION_RUN_UPPER_1:
+        upper = SPRITE_RUN1;
+        lower = SPRITE_TERRAIN_EMPTY;
+        break;
+        case HERO_POSITION_RUN_UPPER_2:
+        upper = SPRITE_RUN2;
+        lower = SPRITE_TERRAIN_EMPTY;
+        break;
+        }
+        if (upper != ' ') {
+        terrainUpper[HERO_HORIZONTAL_POSITION] = upper;
+        collide = (upperSave == SPRITE_TERRAIN_EMPTY) ? false : true;
+        }
+        if (lower != ' ') {
+        terrainLower[HERO_HORIZONTAL_POSITION] = lower;
+        collide |= (lowerSave == SPRITE_TERRAIN_EMPTY) ? false : true;
+        }
 
-const int PULSADOR_START = A5;
+        byte digits = (score > 9999) ? 5 : (score > 999) ? 4 : (score > 99) ? 3 : (score > 9) ? 2 : 1;
 
-/* VARIABLES PARA INDICAR SONIDOS */
-const int SONIDO_VERDE = 440;
-const int SONIDO_ROJO = 392;
-const int SONIDO_AMARILLO = 349;
-const int SONIDO_AZUL = 329;
-const int DURACION_SONIDO = 100;
+        // Draw the scene
+        terrainUpper[TERRAIN_WIDTH] = '\0';
+        terrainLower[TERRAIN_WIDTH] = '\0';
+        char temp = terrainUpper[16-digits];
+        terrainUpper[16-digits] = '\0';
+        lcd.setCursor(0,0);
+        lcd.print(terrainUpper);
+        terrainUpper[16-digits] = temp;
+        lcd.setCursor(0,1);
+        lcd.print(terrainLower);
 
-/* VARIABLES PARA INDICAR RONDAS */
-const int MAX_RONDAS = 20;
-int ronda = 1;
+        lcd.setCursor(16 - digits,0);
+        lcd.print(score);
 
-/* VARIABLES PARA EL TEMPORIZADOR */
-const int MIN_SERVO = 0;    /* valor minimo servo    */
-const int MAX_SERVO = 180;  /* valor maximo servo    */
-int posicionServo = MIN_SERVO; /* valor actual servo */
+        terrainUpper[HERO_HORIZONTAL_POSITION] = upperSave;
+        terrainLower[HERO_HORIZONTAL_POSITION] = lowerSave;
+        return collide;
+        }
 
-int cambioServo = 1;        /* movimiento del servo  */
-int velocidad = 300;        /* VEL por defecto = 300 */
+// Handle the button push as an interrupt
+        void buttonPush() {
+        buttonPushed = true;
+        }
 
-const int STAGE1 = (MAX_RONDAS/4)*1;  
-const int STAGE2 = (MAX_RONDAS/4)*2;
-const int STAGE3 = (MAX_RONDAS/4)*3;
-const int STAGE4 = MAX_RONDAS;
+        void setup(){
+        pinMode(PIN_READWRITE, OUTPUT);
+        digitalWrite(PIN_READWRITE, LOW);
+        pinMode(PIN_CONTRAST, OUTPUT);
+        digitalWrite(PIN_CONTRAST, LOW);
+        pinMode(PIN_BUTTON, INPUT);
+        digitalWrite(PIN_BUTTON, HIGH);
+        pinMode(PIN_AUTOPLAY, OUTPUT);
+        digitalWrite(PIN_AUTOPLAY, HIGH);
+        pinMode(led, OUTPUT);
+        pinMode(buzzer,OUTPUT);
 
-const int CAMBIO1 = MAX_SERVO / STAGE1;
-const int CAMBIO2 = MAX_SERVO / STAGE2;
-const int CAMBIO3 = MAX_SERVO / STAGE3;
-const int CAMBIO4 = MAX_SERVO / STAGE4;
+        // Digital pin 2 maps to interrupt 0
+        attachInterrupt(0/PIN_BUTTON/, buttonPush, FALLING);
 
-/* VARIABLES PARA COMPROBAR RESULTADO */
-int secuenciaOriginal[MAX_RONDAS];
-int secuenciaUsuario[MAX_RONDAS];
+        initializeGraphics();
 
-int leerVerde = -1;         /* leemos botón verde    */
-int leerRojo = -1;          /* leemos botón rojo     */
-int leerAmarillo = -1;      /* leemos botón amarillo */
-int leerAzul = -1;          /* leemos botón azul     */
+        lcd.begin(16, 2);
+        }
 
-int leerPotenc = -1;        /* leemos potenciómetro  */
+        void loop(){
+static byte heroPos = HERO_POSITION_RUN_LOWER_1;
+static byte newTerrainType = TERRAIN_EMPTY;
+static byte newTerrainDuration = 1;
+static bool playing = false;
+static bool blink = false;
+static unsigned int distance = 0;
 
-const int APAGADO = -99;    /* ningun LED asignado   */
-int botonPulsado = APAGADO; /* control LED asignado |*/
-int colorPulsado = APAGADO;                      /* |*/
-int leerEstadoBotonPulsado = APAGADO;            /* |*/
-bool algunBotonPulsado = false;                  /* |*/
+        if (!playing) {
+        drawHero((blink) ? HERO_POSITION_OFF : heroPos, terrainUpper, terrainLower, distance >> 3);
+        if (blink) {
+        lcd.setCursor(0,0);
+        lcd.print("Press Start");
+        }
+        delay(250);
+        blink = !blink;
+        if (buttonPushed) {
+        initializeGraphics();
+        heroPos = HERO_POSITION_RUN_LOWER_1;
+        playing = true;
+        buttonPushed = false;
+        distance = 0;
+        }
+        return;
+        }
 
-bool salir = false;
-bool gameOver = false;
+        // Shift the terrain to the left
+        advanceTerrain(terrainLower, newTerrainType == TERRAIN_LOWER_BLOCK ? SPRITE_TERRAIN_SOLID : SPRITE_TERRAIN_EMPTY);
+        advanceTerrain(terrainUpper, newTerrainType == TERRAIN_UPPER_BLOCK ? SPRITE_TERRAIN_SOLID : SPRITE_TERRAIN_EMPTY);
 
-/* -------------------------------------------------- */
+        // Make new terrain to enter on the right
+        if (--newTerrainDuration == 0) {
+        if (newTerrainType == TERRAIN_EMPTY) {
+        newTerrainType = (random(3) == 0) ? TERRAIN_UPPER_BLOCK : TERRAIN_LOWER_BLOCK;
+        newTerrainDuration = 2 + random(10);
+        } else {
+        newTerrainType = TERRAIN_EMPTY;
+        newTerrainDuration = 10 + random(10);
+        }
+        }
 
-/* INICIAMOS EL LCD Y SERVO */
-Servo temporizador;
-LiquidCrystal lcd(RS, E, D4, D5, D6, D7);
+        if (buttonPushed) {
+        if (heroPos <= HERO_POSITION_RUN_LOWER_2) heroPos = HERO_POSITION_JUMP_1;
+        buttonPushed = false;
+        }
 
-/**
-* SETUP: INICIAMOS EL PROGRAMA
-**/
-void setup() {
-  lcd.begin(16, 2);
-  /* Creamos los caracteres especoales */
-  lcd.createChar(0, botonNoPres1);
-  lcd.createChar(1, botonNoPres2);
-  lcd.createChar(2, botonPres1);
-  lcd.createChar(3, botonPres2);
-  
-  /* Iniciamos temporizador */
-  lcd.clear();
-  lcd.print(" STARTING");
-  temporizador.attach(SERVO);
-  temporizador.write(0);
-  
-  Serial.begin(9600);
-  
-  /* Iniciamos pulsadores y LEDs */
-  pinMode(PULSADOR_VERDE, INPUT);
-  pinMode(PULSADOR_ROJO, INPUT);
-  pinMode(PULSADOR_AMARILLO, INPUT);
-  pinMode(PULSADOR_AZUL, INPUT);
+        if (drawHero(heroPos, terrainUpper, terrainLower, distance >> 3)) {
+        playing = false; // The hero collided with something. Too bad.
+        digitalWrite(led, HIGH);
+        digitalWrite(buzzer,HIGH);
+        } else {
+        if (heroPos == HERO_POSITION_RUN_LOWER_2 || heroPos == HERO_POSITION_JUMP_8) {
+        heroPos = HERO_POSITION_RUN_LOWER_1;
+        } else if ((heroPos >= HERO_POSITION_JUMP_3 && heroPos <= HERO_POSITION_JUMP_5) && terrainLower[HERO_HORIZONTAL_POSITION] != SPRITE_TERRAIN_EMPTY) {
+        heroPos = HERO_POSITION_RUN_UPPER_1;
+        } else if (heroPos >= HERO_POSITION_RUN_UPPER_1 && terrainLower[HERO_HORIZONTAL_POSITION] == SPRITE_TERRAIN_EMPTY) {
+        heroPos = HERO_POSITION_JUMP_5;
+        } else if (heroPos == HERO_POSITION_RUN_UPPER_2) {
+        heroPos = HERO_POSITION_RUN_UPPER_1;
+        } else {
+        ++heroPos;
+        }
+        ++distance;
 
-  pinMode(LED_VERDE, OUTPUT);
-  pinMode(LED_ROJO, OUTPUT);
-  pinMode(LED_AMARILLO, OUTPUT);
-  pinMode(LED_AZUL, OUTPUT);
-
-  /* Iniciamos todos los LED a 0 */
-  digitalWrite(LED_VERDE, LOW);
-  digitalWrite(LED_ROJO, LOW);
-  digitalWrite(LED_AMARILLO, LOW);
-  digitalWrite(LED_AZUL, LOW);
-  
-  /* Rafaga LEDs */
-  lcd.print(".");
-  for (int n = LED_VERDE; n >= LED_AZUL; n--) {
-    digitalWrite(n, HIGH);
-    delay(80);
-    digitalWrite(n, LOW);
-  }
-  lcd.print(".");
-  delay(400);
-  lcd.print(".");
-  for (int n = LED_AZUL; n <= LED_VERDE; n++) {
-    digitalWrite(n, HIGH);
-    delay(80);
-    digitalWrite(n, LOW);
-  }
-
-  /* Imprimimos en el monitor serie el título */
-  Serial.print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
-  Serial.print("         ########################\n");
-  Serial.print("         #      SIMON SAYS      #\n");
-  Serial.print("         ########################\n\n");
-  
-  
-  /* Esperamos botón de Start */
-  lcd.clear();
-  lcd.print(" # SIMON SAYS #");
-  lcd.print(" PUSH START ");
-  while(digitalRead(PULSADOR_START) == HIGH){
-    lcd.setCursor(0, 1);
-    lcd.print(" PUSH START  ");
-    lcd.write((byte)0);
-    lcd.write((byte)1);
-    
-    /* Leemos varias veces para no coger la misma semilla siempre */
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    
-    lcd.setCursor(0, 1);
-    lcd.print(" PUSH START  ");
-    lcd.write((byte)2);
-    lcd.write((byte)3);
-    
-    /* Leemos varias veces para no coger la misma semilla siempre */
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    delay(75);
-    if(digitalRead(PULSADOR_START) == LOW)
-      break;
-    delay(75);
-  }
-  
-  /* Generamos la secuencia aleatoria del juego */
-  generarSecuencia();
-}
-
-
-/**
-* LOOP: SE REPITE POR CADA RONDA
-**/
-void loop()
-{ 
-  /* Nueva Ronda: se prepara temporizador y pantalla */ 
-  temporizador.write(MIN_SERVO);
-  lcd.clear();
-  lcd.print(" # SIMON SAYS #");
-  lcd.setCursor(0, 1);
-  lcd.print(" ROUND:" + String(ronda));
-  delay(2000);
-  
-  /* Reproducir secuencia */
-  mostrarSecuencia();
-  
-  botonPulsado = APAGADO;
-  posicionServo = 0;
-  
-  /* Comprobamos la entrada por botones */
-  while(!salir)
-    comprobarSecuencia();
-  
-  /* Se ha PERDIDO */
-  if(gameOver){
-    finalizarJuegoPerder();
-    while(1){
-      delay(200);
-      lcd.setCursor(0, 1);
-      lcd.print("RESET TO PLAY AG");
-      delay(400);
-      lcd.setCursor(0, 1);
-      lcd.print("ESET TO PLAY AGA");
-      delay(100);
-      lcd.setCursor(0, 1);
-      lcd.print("SET TO PLAY AGAI"); 
-      delay(100);
-      lcd.setCursor(0, 1);
-      lcd.print("ET TO PLAY AGAIN");
-
-      delay(1000);
-      lcd.setCursor(0, 1); 
-      lcd.print("                ");
-    }
-  }
-  
-  /* Juego completado: se ha GANADO */
-  if(ronda == MAX_RONDAS) {
-    lcd.clear();
-    lcd.print("    YOU WIN!");
-    Serial.print("\n\n         --- VICTORY! ---");
-    
-    /* Melodía victoria */
-    delay(2000);
-    tone(PIN_BUZZER,1318,125);
-    delay(130);
-    tone(PIN_BUZZER,1568,125);
-    delay(130);
-    tone(PIN_BUZZER,2637,125);
-    delay(130);
-    tone(PIN_BUZZER,2093,125);
-    delay(130);
-    tone(PIN_BUZZER,2350,125);
-    delay(130);
-    tone(PIN_BUZZER,3136,125);
-    delay(125);
-    noTone(PIN_BUZZER);
-    
-    while(1){
-      finalizarJuegoGanar();
-    }
-  }
-  
-  /* Siguiente ronda */
-  ronda++;
-  salir = false;
-}
-
-/* -------------------------------------------------- */
-
-/**
-* Método para generar la secuencia aleatoria 
-**/
-void generarSecuencia() {
-  randomSeed(millis());
-
-  for (int i = 0; i < MAX_RONDAS; i++){
-    secuenciaOriginal[i] = random(LED_AZUL, LED_VERDE+1);
-  }
-
-  /* Imprimimos la inicial correspondiente a cada color */
-  Serial.print("Secuencia completa: \n[");
-  for (int i = 0; i < MAX_RONDAS-1; i++){
-    if(secuenciaOriginal[i] == LED_VERDE)
-      Serial.print("G ");
-    else if(secuenciaOriginal[i] == LED_ROJO)
-      Serial.print("R ");
-    else if(secuenciaOriginal[i] == LED_AMARILLO)
-      Serial.print("Y ");
-    else if(secuenciaOriginal[i] == LED_AZUL)
-      Serial.print("B ");
-  }
-  
-  if(secuenciaOriginal[MAX_RONDAS-1] == LED_VERDE)
-    Serial.print("G]\n\n");
-  else if(secuenciaOriginal[MAX_RONDAS-1] == LED_ROJO)
-    Serial.print("R]\n\n");
-  else if(secuenciaOriginal[MAX_RONDAS-1] == LED_AMARILLO)
-    Serial.print("Y]\n\n");
-  else if(secuenciaOriginal[MAX_RONDAS-1] == LED_AZUL)
-    Serial.print("B]\n\n");
-}
-
-/**
-* Método para mostrar la secuencia aleatoria. Solo
-* reproduce los colores necesarios para cada ronda
-**/
-void mostrarSecuencia() {
-  leerPotenc = analogRead(POTENCIOMETRO);
-  if(ronda < 9)
-    lcd.print(" ");
-  lcd.print(" VEL:");
-  velocidad = calcularVelocidad(leerPotenc);
-  
-  for (int i = 0; i < ronda; i++){
-    /* Reproducimos el sonido correspondiente al color */
-    if(secuenciaOriginal[i] == LED_VERDE)
-      tone(PIN_BUZZER, SONIDO_VERDE, DURACION_SONIDO);
-    else if(secuenciaOriginal[i] == LED_ROJO)
-      tone(PIN_BUZZER, SONIDO_ROJO, DURACION_SONIDO);
-    else if(secuenciaOriginal[i] == LED_AMARILLO)
-      tone(PIN_BUZZER, SONIDO_AMARILLO, DURACION_SONIDO);
-    else if(secuenciaOriginal[i] == LED_AZUL)
-      tone(PIN_BUZZER, SONIDO_AZUL, DURACION_SONIDO);
-    
-    /* Iluminamos el LED correspondiente al color*/
-    digitalWrite(secuenciaOriginal[i], HIGH);
-    delay(velocidad);
-    digitalWrite(secuenciaOriginal[i], LOW);
-    delay(velocidad);
-  }
-}
-
-/**
-* Método para seleccionar la velocidad del juego
-**/
-int calcularVelocidad (int valorP) {
-  valorP = map(valorP, 0, 1023, 0, 3);
-  if (valorP >= 2) {
-  lcd.print("1");
-    delay(2000);
-    return 300;
-  } else if (valorP == 1) {
-  lcd.print("2");
-    delay(2000);
-    return 200;
-  } else if (valorP == 0) {
-  lcd.print("3");
-    delay(2000);
-    return 100;
-  }
-  
-  /* En caso de error, retorna una velocidad genérica */
-  return 300;
-}
-
-/**
-* Método para comprobar la secuencia introducida con
-* la secuencia generada. Si coinciden, continua la 
-* ejecución. Si no coinciden, se indica error para
-* finalizar el programa con 'gameOver'.
-**/
-void comprobarSecuencia() {
-  Serial.print("\nRONDA " + String(ronda) + ":");
-  
-  for(int i = 0; i < ronda;){
-    algunBotonPulsado = false;
-  
-    leerVerde = digitalRead(PULSADOR_VERDE);
-    leerRojo = digitalRead(PULSADOR_ROJO);
-    leerAmarillo = digitalRead(PULSADOR_AMARILLO);
-    leerAzul = digitalRead(PULSADOR_AZUL);
-    
-  
-    /* Verde pulsado */
-    if(leerVerde == LOW) {
-    tone(PIN_BUZZER, SONIDO_VERDE, DURACION_SONIDO);
-      leerEstadoBotonPulsado = leerVerde;
-      botonPulsado = PULSADOR_VERDE;
-      colorPulsado = LED_VERDE;
-      digitalWrite(LED_VERDE, HIGH);
-      algunBotonPulsado = true;
-    }
-    /* Rojo pulsado */
-    else if(leerRojo == LOW) {
-    tone(PIN_BUZZER, SONIDO_ROJO, DURACION_SONIDO);
-      leerEstadoBotonPulsado = leerRojo;
-      botonPulsado = PULSADOR_ROJO;
-      colorPulsado = LED_ROJO;
-      digitalWrite(LED_ROJO, HIGH);
-      algunBotonPulsado = true;
-    }
-    /* Amarillo pulsado */
-    else if (leerAmarillo == LOW) {
-    tone(PIN_BUZZER, SONIDO_AMARILLO, DURACION_SONIDO);
-      leerEstadoBotonPulsado = leerAmarillo;
-      botonPulsado = PULSADOR_AMARILLO;
-      colorPulsado = LED_AMARILLO;
-      digitalWrite(LED_AMARILLO, HIGH);
-      algunBotonPulsado = true;
-    }
-    /* Azul pulsado */
-    else if (leerAzul == LOW) {
-    tone(PIN_BUZZER, SONIDO_AZUL, DURACION_SONIDO);
-      leerEstadoBotonPulsado = leerAzul;
-      botonPulsado = PULSADOR_AZUL;
-      colorPulsado = LED_AZUL;
-      digitalWrite(LED_AZUL, HIGH);
-      algunBotonPulsado = true;
-    }
-    
-    /* Temporizador (Servo) */
-    if(ronda > 0 && ronda <= STAGE1)
-      cambioServo = CAMBIO1;
-    else if(ronda > STAGE1 && ronda <= STAGE2)
-      cambioServo = CAMBIO2;
-    else if(ronda > STAGE2 && ronda <= STAGE3)
-      cambioServo = CAMBIO3;
-    else if(ronda > STAGE3 && ronda <= STAGE4)
-      cambioServo = CAMBIO4;
-    
-    if((millis()%1000) == 0) {
-      posicionServo += cambioServo;
-      temporizador.write(posicionServo);
-      delay(50);
-    }
-    
-    /* Si se ACABA el TIEMPO */
-    if(posicionServo >= MAX_SERVO) {
-      salir = true;
-      gameOver = true;
-      Serial.print(" -> [X] Tiempo acabado! [X]");
-      Serial.print("\n\n        --- GAME OVER ---");
-      lcd.clear();
-      delay(100);
-      lcd.print("   TIME'S UP!");
-      delay(500);
-      lcd.clear();
-      delay(100);
-      lcd.print("   TIME'S UP!");
-      delay(500);
-      lcd.clear();
-      delay(100);
-    }
-    
-    /* Si se ha PULSADO ALGÚN BOTÓN se entra aquí*/
-    else if(algunBotonPulsado) {
-      secuenciaUsuario[i] = colorPulsado;
-      Serial.print("\n - Pulsado: ");
-      if(colorPulsado == LED_VERDE)
-      Serial.print("G");
-      else if(colorPulsado == LED_ROJO)
-        Serial.print("R");
-      else if(colorPulsado == LED_AMARILLO)
-        Serial.print("Y");
-      else if(colorPulsado == LED_AZUL)
-        Serial.print("B");
-     
-      /* Esperamos a que se suelte el botón y apagamos el LED */
-      while(leerEstadoBotonPulsado == LOW){
-        leerEstadoBotonPulsado = digitalRead(botonPulsado);
-      }
-      digitalWrite(colorPulsado, LOW);
-  
-      /* ERROR*/
-      if(secuenciaOriginal[i] != secuenciaUsuario[i]) {
-        salir = true;
-        gameOver = true;
-        Serial.print(" -> [X] NO CORRECTO! [X]");
-        Serial.print("\n\n        --- GAME OVER ---");
-      }
-      i++;
-    }
-    if(gameOver) {
-      break;
-    }
-  }
-  salir = true;
-}
-
-/**
-* Método para juego finalizado PERDIDO
-**/
-void finalizarJuegoPerder() {
-  /* Mensaje LCD */
-  lcd.clear();
-  lcd.print("   GAME OVER!");
-  
-  /* Parpadeo LEDs para indicar al usuario ERROR */
-  for(int parpadeo = 0; parpadeo < 3; parpadeo++) {
-    digitalWrite(LED_VERDE, HIGH);
-    digitalWrite(LED_ROJO, HIGH);
-    digitalWrite(LED_AMARILLO, HIGH);
-    digitalWrite(LED_AZUL, HIGH);
-    delay(100);
-    digitalWrite(LED_VERDE, LOW);
-    digitalWrite(LED_ROJO, LOW);
-    digitalWrite(LED_AMARILLO, LOW);
-    digitalWrite(LED_AZUL, LOW);
-    delay(100);
-  }
-
-  /* Melodía derrota */
-  tone(PIN_BUZZER, 466, 400);
-  delay(400);
-  tone(PIN_BUZZER, 440, 400);
-  delay(400);
-  tone(PIN_BUZZER, 415, 400);
-  delay(400);
-  tone(PIN_BUZZER, 392, 1000);
-  delay(1000);
-}
-
-/**
-* Método para juego finalizado GANADO
-**/
-void finalizarJuegoGanar() {
-  /* Rafaga mensaje LCD */
-  for(int n = 0; n < 3; n++){
-    delay(500);
-    lcd.clear();
-    delay(100);
-    lcd.print("    YOU WIN!");
-  }
-  
-  /* Rafaga LEDs */
-  for (int n = LED_VERDE; n >= LED_AZUL; n--) {
-    digitalWrite(n, HIGH);
-    delay(80);
-    digitalWrite(n, LOW);
-  }
-  delay(400);
-  for (int n = LED_AZUL; n <= LED_VERDE; n++) {
-    digitalWrite(n, HIGH);
-    delay(80);
-    digitalWrite(n, LOW);
-  }
-}
+        digitalWrite(PIN_AUTOPLAY, terrainLower[HERO_HORIZONTAL_POSITION + 2] == SPRITE_TERRAIN_EMPTY ? HIGH : LOW);
+        digitalWrite(led, LOW);
+        digitalWrite(buzzer,LOW);
+        }
+        delay(50);
+        }
